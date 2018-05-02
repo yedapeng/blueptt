@@ -52,6 +52,9 @@ static uint8_t adv_config_done       = 0;
 
 uint16_t heart_rate_handle_table[HRS_IDX_NB];
 
+static uint16_t 		blueptt_conn_id = 0xffff;
+static esp_gatt_if_t 	blueptt_gatts_if = 0xff;
+
 typedef struct {
     uint8_t                 *prepare_buf;
     int                     prepare_len;
@@ -359,6 +362,7 @@ void example_exec_write_event_env(prepare_type_env_t *prepare_write_env, esp_ble
 
 static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
 {
+	esp_ble_gatts_cb_param_t *p_data = (esp_ble_gatts_cb_param_t *) param;
     switch (event) {
         case ESP_GATTS_REG_EVT:{
             esp_err_t set_dev_name_ret = esp_ble_gap_set_device_name(SAMPLE_DEVICE_NAME);
@@ -458,6 +462,10 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
             ESP_LOGI(GATTS_TABLE_TAG, "SERVICE_START_EVT, status %d, service_handle %d", param->start.status, param->start.service_handle);
             break;
         case ESP_GATTS_CONNECT_EVT:
+		
+			blueptt_conn_id = p_data->connect.conn_id;
+    	    blueptt_gatts_if = gatts_if;
+		
             ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_CONNECT_EVT, conn_id = %d", param->connect.conn_id);
             esp_log_buffer_hex(GATTS_TABLE_TAG, param->connect.remote_bda, 6);
             esp_ble_conn_update_params_t conn_params = {0};
@@ -530,12 +538,31 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
     } while (0);
 }
 
+static void rx_task()
+{
+    static const char *RX_TASK_TAG = "RX_TASK";
+    esp_log_level_set(RX_TASK_TAG, ESP_LOG_INFO);
+    uint8_t* data = (uint8_t*) malloc(RX_BUF_SIZE+1);
+    while (1) {
+        const int rxBytes = uart_read_bytes(UART_NUM_1, data, RX_BUF_SIZE, 100 / portTICK_RATE_MS);
+        if (rxBytes > 0) {
+			//the size of notify_data[] need less than MTU size
+			esp_ble_gatts_send_indicate(blueptt_gatts_if, blueptt_conn_id, heart_rate_handle_table[IDX_CHAR_VAL_A],
+			rxBytes, data, false);
+            //data[rxBytes] = 0;
+            //ESP_LOGI(RX_TASK_TAG, "Read %d bytes: '%s'", rxBytes, data);
+            //ESP_LOG_BUFFER_HEXDUMP(RX_TASK_TAG, data, rxBytes, ESP_LOG_INFO);
+        }
+    }
+    free(data);
+}
+
 void app_main()
 {
     esp_err_t ret;
 
 	uart_init();
-	//xTaskCreate(rx_task, "uart_rx_task", 1024*2, NULL, configMAX_PRIORITIES, NULL);
+	xTaskCreate(rx_task, "uart_rx_task", 1024*2, NULL, configMAX_PRIORITIES, NULL);
     //xTaskCreate(tx_task, "uart_tx_task", 1024*2, NULL, configMAX_PRIORITIES-1, NULL);
 	
     /* Initialize NVS. */

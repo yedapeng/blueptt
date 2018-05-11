@@ -359,6 +359,7 @@ void example_exec_write_event_env(prepare_type_env_t *prepare_write_env, esp_ble
     }
     prepare_write_env->prepare_len = 0;
 }
+uint32_t rx_len = 0;
 
 static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
 {
@@ -409,10 +410,10 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                 if (heart_rate_handle_table[IDX_CHAR_VAL_A] == param->write.handle)
 				{
 					uart_write_bytes(UART_NUM_1, (char*)param->write.value, param->write.len);
-					
+					rx_len += param->write.len;
 				}
-				esp_log_buffer_hex(GATTS_TABLE_TAG, param->write.value, param->write.len);
-                
+				//esp_log_buffer_hex(GATTS_TABLE_TAG, param->write.value, param->write.len);
+                ESP_LOGI(GATTS_TABLE_TAG, "rx_len:%d",rx_len);
 		 		if (heart_rate_handle_table[IDX_CHAR_CFG_A] == param->write.handle && param->write.len == 2){
                     uint16_t descr_value = param->write.value[1]<<8 | param->write.value[0];
                     if (descr_value == 0x0001){
@@ -547,12 +548,33 @@ static void rx_task()
     static const char *RX_TASK_TAG = "RX_TASK";
     esp_log_level_set(RX_TASK_TAG, ESP_LOG_INFO);
     uint8_t* data = (uint8_t*) malloc(RX_BUF_SIZE+1);
+	uint8_t count = 0;
     while (1) {
-        const int rxBytes = uart_read_bytes(UART_NUM_1, data, RX_BUF_SIZE, 100 / portTICK_RATE_MS);
+        const int rxBytes = uart_read_bytes(UART_NUM_1, data, RX_BUF_SIZE, 10 / portTICK_RATE_MS);
         if (rxBytes > 0) {
 			//the size of notify_data[] need less than MTU size
-			esp_ble_gatts_send_indicate(blueptt_gatts_if, blueptt_conn_id, heart_rate_handle_table[IDX_CHAR_VAL_A],
-			rxBytes, data, false);
+			
+			if (rxBytes<20)
+			{
+				esp_ble_gatts_send_indicate(blueptt_gatts_if, blueptt_conn_id, heart_rate_handle_table[IDX_CHAR_VAL_A],
+						rxBytes, data, false);
+				
+			}
+			else
+			{
+				for (count = 0; count < rxBytes/20; count ++)
+				{
+					esp_ble_gatts_send_indicate(blueptt_gatts_if, blueptt_conn_id, heart_rate_handle_table[IDX_CHAR_VAL_A],
+						20, &data[count*20], false);
+					vTaskDelay(20 / portTICK_RATE_MS); 
+				}
+				
+				esp_ble_gatts_send_indicate(blueptt_gatts_if, blueptt_conn_id, heart_rate_handle_table[IDX_CHAR_VAL_A],
+						rxBytes%20, &data[count*20], false);
+			}
+			
+			
+			
             //data[rxBytes] = 0;
             //ESP_LOGI(RX_TASK_TAG, "Read %d bytes: '%s'", rxBytes, data);
             //ESP_LOG_BUFFER_HEXDUMP(RX_TASK_TAG, data, rxBytes, ESP_LOG_INFO);

@@ -33,6 +33,8 @@
 #include "driver/uart.h"
 #include "soc/uart_struct.h"
 
+#include "driver/gpio.h"
+
 #define GATTS_TABLE_TAG "GATTS_TABLE_DEMO"
 
 #define PROFILE_NUM                 1
@@ -177,8 +179,8 @@ static const uint8_t char_value[4]                 = {0x11, 0x22, 0x33, 0x44};
 
 static const int RX_BUF_SIZE = 1024;
 
-#define TXD_PIN (GPIO_NUM_4)
-#define RXD_PIN (GPIO_NUM_5)
+#define TXD_PIN (GPIO_NUM_17)
+#define RXD_PIN (GPIO_NUM_16)
 
 
 void uart_init() {
@@ -583,10 +585,91 @@ static void rx_task()
     free(data);
 }
 
+#define I2S_1		    	2
+#define I2S_2		    	4
+#define I2S_3		    	5
+#define I2S_4		    	18
+
+#define GPIO_OUTPUT_PIN_SEL_I2S  ((1ULL<<I2S_1) | (1ULL<<I2S_2) | (1ULL<<I2S_3) | (1ULL<<I2S_4))
+
+
+#define MCU_BOOT		    27
+#define MCU_RESET		    15
+#define GPIO_OUTPUT_PIN_SEL  ((1ULL<<MCU_BOOT) | (1ULL<<MCU_RESET))
+
+void user_gpio_init(void)
+{
+	gpio_config_t io_conf;
+    //disable interrupt
+    io_conf.intr_type = GPIO_PIN_INTR_DISABLE;
+    //set as output mode
+    io_conf.mode = GPIO_MODE_OUTPUT_OD;
+    //bit mask of the pins that you want to set,e.g.GPIO18/19
+    io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
+    //disable pull-down mode
+    io_conf.pull_down_en = 0;
+    //disable pull-up mode
+    io_conf.pull_up_en = 0;
+    //configure GPIO with the given settings
+    gpio_config(&io_conf);
+	
+	
+	//disable interrupt
+    io_conf.intr_type = GPIO_PIN_INTR_DISABLE;
+    //set as output mode
+    io_conf.mode = GPIO_MODE_OUTPUT_OD;
+    //bit mask of the pins that you want to set,e.g.GPIO18/19
+    io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL_I2S;
+    //disable pull-down mode
+    io_conf.pull_down_en = 0;
+    //disable pull-up mode
+    io_conf.pull_up_en = 0;
+    //configure GPIO with the given settings
+    gpio_config(&io_conf);
+	
+	gpio_set_level(I2S_1, 1);
+	gpio_set_level(I2S_2, 1);
+	gpio_set_level(I2S_3, 1);
+	gpio_set_level(I2S_4, 1);
+	
+	gpio_set_level(MCU_RESET, 1);
+	gpio_set_level(MCU_BOOT, 0);
+}
+
+
+/*
+	MCU RESET
+	执行一次 MCU 复位
+	
+*/
+void mcu_reset(void)
+{
+	gpio_set_level(MCU_RESET, 0);
+	vTaskDelay(100 / portTICK_RATE_MS); 
+	gpio_set_level(MCU_RESET, 1);
+}
+
+/*
+	设置 boot 状态
+	0	正常APP启动
+	1	从串口引导启动
+*/
+void mcu_boot(uint8_t boot)
+{
+	gpio_set_level(MCU_BOOT, boot);
+}
+
+
+
+
 void app_main()
 {
     esp_err_t ret;
 
+	user_gpio_init();
+	mcu_boot(0);
+	mcu_reset();
+	
 	uart_init();
 	xTaskCreate(rx_task, "uart_rx_task", 1024*2, NULL, configMAX_PRIORITIES, NULL);
     //xTaskCreate(tx_task, "uart_tx_task", 1024*2, NULL, configMAX_PRIORITIES-1, NULL);
